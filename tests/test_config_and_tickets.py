@@ -71,3 +71,11 @@ def test_load_ticket_rejects_mismatched_key(tmp_path: Path) -> None:
     (tmp_path / "PARK-999.json").write_text(src)
     with pytest.raises(ValueError, match="expected PARK-999"):
         load_ticket("PARK-999", tmp_path)
+
+
+def test_bare_yaml_off_means_off() -> None:
+    import yaml
+
+    raw = load_config(ROOT / "gates.yaml").model_dump(mode="json")
+    raw["gates"]["tests"] = yaml.safe_load("{mode: off}")  # YAML reads this as False
+    assert GatesConfig.model_validate(raw).gates["tests"].mode is Mode.OFF

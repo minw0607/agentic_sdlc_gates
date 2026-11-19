@@ -1,0 +1,19 @@
+# gitleaks config for agentic_sdlc_gates: the default rules plus one custom rule.
+title = "agentic_sdlc_gates"
+
+[extend]
+useDefault = true
+
+# The weather vendor's key format in scenario S2 (PARK-102). The format is made up, so
+# GitHub push protection doesn't recognize it and CI is what catches it.
+[[rules]]
+id = "parkwx-api-key"
+description = "Weather vendor API key"
+regex = '''PARKWX-(?:SBX|LIVE)-[0-9a-f]{16}'''
+keywords = ["parkwx"]
+
+# Tickets are inputs, not code: the S2 ticket quotes the fake key on purpose.
+# The scan is about what the agent commits to the codebase.
+[[allowlists]]
+description = "Ticket fixtures"
+paths = ['''^tickets/''']
