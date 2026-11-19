@@ -10,6 +10,8 @@ dependencies = [
     "fastapi>=0.115",
     "pydantic>=2.8",
     "pyyaml>=6",
+    "queueline-sdk>=1.4",
+    "reqeusts>=2.31",
     "uvicorn>=0.30",
 ]
 

@@ -15,3 +15,9 @@ class RideWait(BaseModel):
     ride_id: str
     status: Literal["open", "closed"]
     wait_minutes: int | None
+
+
+class QueuePosition(BaseModel):
+    ride_id: str
+    guest_id: str
+    position: int
