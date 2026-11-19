@@ -10,14 +10,14 @@ AI coding agents turn tickets into pull requests in minutes. This repo is a read
 Every policy lives in one file, [`gates.yaml`](gates.yaml). A gate that can't run reports *not evaluated* and blocks, rather than passing quietly.
 
 ```mermaid
-flowchart LR
-    T["Ticket<br/>(Jira-shaped JSON)"] --> S{"Ticket screen<br/>start_ticket.sh"}
-    S -- quarantined --> H["Stop for a<br/>person's review"]
-    S -- clean --> A["Claude Code<br/>deny rules · guard hook · audit log"]
+flowchart TD
+    T["Ticket (Jira-shaped JSON)"] --> S{"Ticket screen<br/>start_ticket.sh"}
+    S -- quarantined --> H["Stop for a person's review"]
+    S -- clean --> A["Claude Code on the developer's machine<br/>deny rules · guard hook · audit log"]
     A --> PR["Pull request"]
-    PR --> G["Release gates G1–G6<br/>GitHub Actions"]
-    G --> V{"Gates verdict<br/>(the one required check)"}
+    PR --> V{"Release gates G1–G6 in GitHub Actions<br/>one required check: Gates verdict"}
     V -- blocked --> F["Fix and push again"]
+    F --> PR
     V -- passed --> O["Code-owner approval<br/>for high-risk paths (G7)"]
     O --> M["Merge"]
 ```
