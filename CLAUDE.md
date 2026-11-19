@@ -13,7 +13,7 @@ A drop-in set of release gates for AI-written code, plus controls on the coding 
 - **One result format.** Every gate writes `reports/<gate>.json` with a result of `pass`, `fail`, `warn` or `not_evaluated` and a one-line reason. `gates/summary.py` reads only those files.
 - **Never install before checking.** The dependency guard (G2) runs before any install. Tests (G5) depend on it.
 - **Evidence by default.** Every PR gets a check summary tracing ticket → acceptance criteria → tests → commits.
-- **Agent least privilege.** Claude Code runs with deny rules and a guard hook in `.claude/` (built on Day 2). The hook inspects Bash commands too, because path deny rules don't cover a subprocess that opens a file itself.
+- **Agent least privilege.** Claude Code runs with deny rules and a guard hook in `.claude/`. The hook inspects Bash commands too, because path deny rules don't cover a subprocess that opens a file itself.
 
 ## Layout
 
@@ -21,6 +21,9 @@ A drop-in set of release gates for AI-written code, plus controls on the coding 
 - `gates/` gate scripts and shared code. `gates/pytest_ac.py` is the pytest plugin that writes `reports/ac_map.json`.
 - `tickets/` Jira-shaped JSON tickets, `PARK-101` to `PARK-105`.
 - `tests/` pytest. A test that covers an acceptance criterion is marked `@pytest.mark.ac("PARK-101/AC-1")`.
+- `.claude/` agent controls: `settings.json` (deny rules, hook registration), `hooks/guard.py` (PreToolUse, blocks secret reads, network calls and force pushes), `hooks/audit.py` (PostToolUse, logs every call to `.agent-audit/tool_calls.jsonl`, gitignored).
+- `scripts/start_ticket.sh` screens a ticket, then starts Claude Code on it.
+- `.env` holds **dummy values only**, for scenario S4. Never read it.
 - `reports/` gate output (gitignored).
 
 ## Commands
@@ -34,9 +37,11 @@ uv run ruff format .                           # format
 uv run mypy                                    # type check (strict)
 uv run uvicorn app.main:app --reload           # run the sample service
 GATES_BASE_REF=origin/main uv run python -m gates.dep_guard   # run one gate locally (G2)
+uv run python -m gates.ticket_screen PARK-104 # screen one ticket locally (G1)
+scripts/start_ticket.sh PARK-101              # screen, then start Claude Code on a branch
 ```
 
-Each gate is `python -m gates.<name>` (`dep_guard`, `osv_gate`, `secret_scan`, `tests_gate`, `traceability`, `summary`). They read `GATES_*` environment variables set by `.github/workflows/factory-gates.yml`.
+Each gate is `python -m gates.<name>` (`ticket_screen`, `dep_guard`, `osv_gate`, `secret_scan`, `tests_gate`, `traceability`, `summary`). They read `GATES_*` environment variables set by `.github/workflows/factory-gates.yml`.
 
 ## Conventions
 
