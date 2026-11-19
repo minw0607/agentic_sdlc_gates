@@ -11,11 +11,11 @@ Every policy lives in one file, [`gates.yaml`](gates.yaml). A gate that can't ru
 
 ```mermaid
 flowchart TD
-    T["Ticket (Jira-shaped JSON)"] --> S{"Ticket screen<br/>start_ticket.sh"}
+    T["Ticket (Jira-shaped JSON)"] --> S(["Ticket screen · start_ticket.sh"])
     S -- quarantined --> H["Stop for a person's review"]
     S -- clean --> A["Claude Code on the developer's machine<br/>deny rules · guard hook · audit log"]
     A --> PR["Pull request"]
-    PR --> V{"Release gates G1–G6 in GitHub Actions<br/>one required check: Gates verdict"}
+    PR --> V(["Release gates G1–G6 in GitHub Actions<br/>one required check: Gates verdict"])
     V -- blocked --> F["Fix and push again"]
     F --> PR
     V -- passed --> O["Code-owner approval<br/>for high-risk paths (G7)"]
