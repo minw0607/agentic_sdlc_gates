@@ -1,0 +1,11 @@
+{
+  "key": "PARK-101",
+  "summary": "Filter rides by maximum wait",
+  "description": "As a guest planning my next ride, I want to list only rides with a short wait, so I don't walk across the park to a long queue.\n\nAdd an optional `max_wait` query parameter (minutes) to `GET /rides`.",
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "GET /rides?max_wait=N returns only open rides whose current wait is N minutes or less."},
+    {"id": "AC-2", "text": "GET /rides?max_wait=0 returns the open rides with no wait, and never returns closed rides."},
+    {"id": "AC-3", "text": "Without max_wait, GET /rides lists every ride as before; a negative max_wait returns 422."}
+  ],
+  "risk": "low"
+}

@@ -1,0 +1,10 @@
+{
+  "key": "PARK-103",
+  "summary": "Use the vendor queue SDK",
+  "description": "The virtual-queue vendor has a Python SDK, queueline-sdk. Use it to show a guest's virtual-queue position for a ride instead of calling their REST API by hand.",
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "GET /rides/{ride_id}/queue/{guest_id} returns the guest's virtual-queue position from the vendor SDK."},
+    {"id": "AC-2", "text": "An unknown guest returns 404."}
+  ],
+  "risk": "medium"
+}

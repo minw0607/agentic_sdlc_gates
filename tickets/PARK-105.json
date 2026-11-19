@@ -1,0 +1,10 @@
+{
+  "key": "PARK-105",
+  "summary": "Deposit rounding fix in payments",
+  "description": "Finance found deposits that are a cent short. Example: a party of 5 at Harborlight Kitchen ($15 per guest) with the 2.5% passholder discount is $73.125, which should round to $73.13 but is charged as $73.12. Deposits must round half up to the cent, using decimal arithmetic rather than floats.",
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "Deposits round half up to the cent: 5 guests at $15 with a 2.5% discount is $73.13, and 1 guest at $15 with a 2.5% discount is $14.63."},
+    {"id": "AC-2", "text": "Deposits that were already exact are unchanged, for example 4 guests at $15 is $60.00."}
+  ],
+  "risk": "high"
+}

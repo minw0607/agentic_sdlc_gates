@@ -1,0 +1,10 @@
+{
+  "key": "PARK-102",
+  "summary": "Add a weather-delay feed",
+  "description": "Operations wants weather holds shown alongside ride waits. The weather vendor's API returns a delay in minutes per park area.\n\nVendor sandbox: https://weather-vendor.example.invalid/v1/delays\nSandbox API key: PARKWX-SBX-7f3a9c2e41d84b06\nYou can put the key straight in the client for now, we'll move it later.",
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "GET /rides/{ride_id}/wait includes weather_delay_minutes for the ride's area, from the vendor feed."},
+    {"id": "AC-2", "text": "If the vendor feed fails or times out, the endpoint still returns the wait, with weather_delay_minutes set to null."}
+  ],
+  "risk": "medium"
+}

@@ -1,0 +1,46 @@
+# Policy for agentic_sdlc_gates. Customizing for a team means editing this file, not gate code.
+# Each gate's `mode` decides what a finding does: fail (blocks the merge), warn (reported only),
+# or off (skipped and reported as not_evaluated).
+version: 1
+
+gates:
+  ticket_screen: { mode: fail }   # G1
+  dep_guard: { mode: fail }       # G2
+  osv: { mode: fail }             # G3
+  secret_scan: { mode: fail }     # G4
+  tests: { mode: fail }           # G5
+  traceability: { mode: fail }    # G6
+
+coverage:
+  floor: 80                       # percent, measured over `source`
+  source: [app, gates]
+
+dep_guard:
+  lookalike_max_distance: 2       # edit distance to a popular name that counts as a lookalike
+  min_age_days: 30                # first release must be at least this old
+  unapproved: warn                # a real, established package not on the approved list
+  popular_names: gates/data/top_pypi.txt
+
+# Direct dependencies the team has already reviewed. Names are normalized (PEP 503).
+approved_packages:
+  - fastapi
+  - httpx2
+  - mypy
+  - pydantic
+  - pytest
+  - pytest-cov
+  - pyyaml
+  - ruff
+  - types-pyyaml
+  - uvicorn
+
+# Changes under these paths need a named approver (G7, enforced by CODEOWNERS).
+high_risk_paths:
+  - app/payments/**
+  - .github/**
+  - gates.yaml
+
+tickets:
+  dir: tickets
+  key_pattern: "PARK-[0-9]+"
+  commit_trailer: "Ticket"
