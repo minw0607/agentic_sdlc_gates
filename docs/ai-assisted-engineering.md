@@ -63,3 +63,33 @@ without repeating it, on a fresh branch (#5 closed).
 **Verified:** CI on PR #2 all green with 3/3 criteria traced; PR #3 blocked by G4 at
 `app/rides/weather.py:8` with every other gate passing; PR #4 blocked by G2 with both expected
 messages and G5 skipped. Both S3 names were 404 on PyPI before the push, and nothing was installed.
+
+## Day 2 morning: ticket screen, agent controls and S4 (2026-11-19)
+
+**Delegated:** `gates/ticket_screen.py` (G1) and its tests, `.claude/settings.json`,
+`.claude/hooks/guard.py` and `audit.py` and their tests, `scripts/start_ticket.sh`, the dummy
+`.env`, and the S4 branch and PR.
+
+**Changes from the plan:**
+- G1 runs in parallel with the other gates, not first. Nothing in CI reads the ticket as
+  instructions, so ordering buys nothing, and S4 can show the code passing every other gate.
+- The audit log can't see blocked calls (they never reach PostToolUse), so the guard writes its
+  own `denied` entries. Entries store a SHA-256 of the input, never the input, so a secret the
+  agent tried to read or send can't land in the log.
+- The hooks are stdlib only and run on the system `python3` (3.9 here), not the project's 3.11
+  environment, so ruff's `datetime.UTC` rewrite was reverted with a `noqa`.
+- Locally the screen prints the matched lines; in CI it reports only field, line and pattern, so
+  the PR comment doesn't carry the injection onward.
+
+**Findings:**
+- The first dummy `.env` values were realistic enough to trip gitleaks' generic-key rule. The
+  values are now plainly `dummy` rather than allowlisting `.env`, so a real `.env` committed later
+  is still caught.
+- Headless `claude -p` on the build machine wasn't logged in, so the live check that the guard's
+  deny is honored by Claude Code 2.1.205 is still open; the hook's JSON output is unit-tested.
+- The screen's first local output printed one injected line five times (once per pattern);
+  it now groups patterns per line, which reads better on screen.
+
+**Verified:** 196 tests pass, including 10 planted patterns, 5 clean tickets, 24 blocked and 11
+allowed tool calls, and fail-closed cases. PR #7 green on every gate including G1. PR #8 (S4)
+blocked by G1 only, with G2–G6 passing and the injected text absent from the PR comment.
