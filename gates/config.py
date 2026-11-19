@@ -26,6 +26,12 @@ class _Strict(BaseModel):
 class GateSetting(_Strict):
     mode: Mode = Mode.FAIL
 
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _yaml_off(cls, v: object) -> object:
+        # YAML 1.1 reads a bare `off` as False. Accept it rather than fail on a common slip.
+        return "off" if v is False else v
+
 
 class Coverage(_Strict):
     floor: float = Field(ge=0, le=100)
@@ -34,6 +40,7 @@ class Coverage(_Strict):
 
 class DepGuard(_Strict):
     lookalike_max_distance: int = Field(ge=0, le=5)
+    lookalike_min_length: int = Field(ge=1)
     min_age_days: int = Field(ge=0)
     unapproved: Mode = Mode.WARN
     popular_names: str
@@ -43,6 +50,8 @@ class Tickets(_Strict):
     dir: str
     key_pattern: str
     commit_trailer: str
+    agent_session_trailer: str
+    no_ticket_label: str
 
     @field_validator("key_pattern")
     @classmethod
