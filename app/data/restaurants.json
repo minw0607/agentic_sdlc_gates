@@ -1,0 +1,5 @@
+[
+  {"id": "d-01", "name": "Lantern Grill", "area": "Old Town Square", "opens": "11:00", "closes": "22:00", "deposit_per_guest": 10.0},
+  {"id": "d-02", "name": "Harborlight Kitchen", "area": "Harbor Walk", "opens": "12:00", "closes": "21:00", "deposit_per_guest": 15.0},
+  {"id": "d-03", "name": "Starlight Noodle Bar", "area": "Starlight Plaza", "opens": "10:30", "closes": "20:30", "deposit_per_guest": 0.0}
+]

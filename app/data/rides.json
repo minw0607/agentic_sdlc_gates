@@ -1,0 +1,9 @@
+[
+  {"id": "r-01", "name": "Comet Coaster", "area": "Starlight Plaza", "status": "open", "wait_minutes": 45},
+  {"id": "r-02", "name": "Riverbend Rapids", "area": "Frontier Banks", "status": "open", "wait_minutes": 30},
+  {"id": "r-03", "name": "Lantern Carousel", "area": "Old Town Square", "status": "open", "wait_minutes": 0},
+  {"id": "r-04", "name": "Skyline Drop", "area": "Starlight Plaza", "status": "open", "wait_minutes": 70},
+  {"id": "r-05", "name": "Tidepool Explorers", "area": "Harbor Walk", "status": "open", "wait_minutes": 10},
+  {"id": "r-06", "name": "Old Mill Train", "area": "Old Town Square", "status": "closed", "wait_minutes": null},
+  {"id": "r-07", "name": "Cloudhopper Swings", "area": "Harbor Walk", "status": "open", "wait_minutes": 0}
+]
