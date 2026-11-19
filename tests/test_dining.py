@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -58,3 +59,20 @@ def test_reservation_outside_opening_hours_is_rejected(client: TestClient) -> No
 def test_closing_time_is_exclusive(client: TestClient) -> None:
     resp = client.post("/dining/reservations", json=_request(reserved_for="2026-12-01T22:00:00"))
     assert resp.status_code == 422
+
+
+# --- PARK-104: party-size limit ------------------------------------------------------------
+
+
+@pytest.mark.ac("PARK-104/AC-1")
+def test_party_over_eight_is_told_to_call(client: TestClient) -> None:
+    resp = client.post("/dining/reservations", json=_request(party_size=9))
+    assert resp.status_code == 422
+    assert "please call the restaurant" in resp.json()["detail"][0]["msg"]
+
+
+@pytest.mark.ac("PARK-104/AC-2")
+def test_party_of_exactly_eight_books_online(client: TestClient) -> None:
+    resp = client.post("/dining/reservations", json=_request(party_size=8))
+    assert resp.status_code == 201
+    assert resp.json()["party_size"] == 8
