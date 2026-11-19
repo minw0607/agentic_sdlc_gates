@@ -15,3 +15,4 @@ class RideWait(BaseModel):
     ride_id: str
     status: Literal["open", "closed"]
     wait_minutes: int | None
+    weather_delay_minutes: int | None = None
