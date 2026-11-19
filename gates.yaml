@@ -4,7 +4,7 @@
 version: 1
 
 gates:
-  ticket_screen: { mode: "off" }  # G1 (built on Day 2; set to fail then)
+  ticket_screen: { mode: fail }   # G1
   dep_guard: { mode: fail }       # G2
   osv: { mode: fail }             # G3
   secret_scan: { mode: fail }     # G4

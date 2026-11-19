@@ -36,7 +36,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["app", "gates"]
+files = ["app", "gates", ".claude/hooks"]
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]

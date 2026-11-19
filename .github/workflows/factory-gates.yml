@@ -33,6 +33,28 @@ env:
   GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
 
 jobs:
+  ticket_screen:
+    name: G1 Ticket screen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Screen the PR's ticket for instructions aimed at the AI
+        env:
+          # Passed through env, never interpolated into the script: PR titles are untrusted.
+          GATES_PR_TITLE: ${{ github.event.pull_request.title }}
+        run: $GATE_PY -m gates.ticket_screen
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: report-ticket_screen
+          path: reports/ticket_screen.json
+          if-no-files-found: ignore
+
   dep_guard:
     name: G2 Dependency guard
     runs-on: ubuntu-latest
@@ -166,7 +188,7 @@ jobs:
 
   verdict:
     name: Gates verdict
-    needs: [dep_guard, osv, secret_scan, tests, traceability]
+    needs: [ticket_screen, dep_guard, osv, secret_scan, tests, traceability]
     if: always()
     runs-on: ubuntu-latest
     permissions:
