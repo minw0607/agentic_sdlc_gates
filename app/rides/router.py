@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query
 
 from app.rides import service
 from app.rides.models import Ride, RideWait
@@ -7,9 +9,16 @@ router = APIRouter(prefix="/rides", tags=["rides"])
 
 
 @router.get("")
-def list_rides() -> list[Ride]:
-    """List every ride with its current status and wait."""
-    return service.all_rides()
+def list_rides(
+    max_wait: Annotated[int | None, Query(ge=0, description="Maximum wait in minutes")] = None,
+) -> list[Ride]:
+    """List rides with their current status and wait.
+
+    With ``max_wait``, only open rides whose wait is at most that many minutes.
+    """
+    if max_wait is None:
+        return service.all_rides()
+    return service.rides_within(max_wait)
 
 
 @router.get("/{ride_id}/wait")
