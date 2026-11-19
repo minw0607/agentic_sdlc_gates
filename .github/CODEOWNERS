@@ -1,0 +1,10 @@
+# High-risk paths need a code owner's approval before they merge (gate G7, scenario S5).
+# Keep this in step with high_risk_paths in gates.yaml; tests/test_codeowners.py checks it.
+#
+# minwu-ai is the second account that approves, because GitHub doesn't let an author approve
+# their own pull request.
+
+/app/payments/  @minwu-ai
+/.github/       @minwu-ai
+/gates.yaml     @minwu-ai
+/.claude/       @minwu-ai

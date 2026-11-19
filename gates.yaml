@@ -40,6 +40,7 @@ high_risk_paths:
   - app/payments/**
   - .github/**
   - gates.yaml
+  - .claude/**
 
 tickets:
   dir: tickets
