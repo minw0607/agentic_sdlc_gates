@@ -43,3 +43,21 @@ What was delegated to Claude Code, what changed after review, and what was learn
 - 116 tests pass locally; ruff and strict mypy are clean.
 - Live runs: gitleaks caught the demo key in app code and ignored it in `tickets/`; OSV-Scanner on `uv.lock` passed; the tests gate passed at 100% coverage of `app/`.
 - CI on [PR #1](https://github.com/minw0607/agentic_sdlc_gates/pull/1): every job passed on the first run, and the summary comment showed G1 as turned off, G2–G5 passing, and G6 warning for `no-ticket`.
+
+## Day 1 afternoon: S1–S3 scenario pull requests (2026-11-19)
+
+**Delegated:** producing the three scenario branches and PRs, and the honesty record in
+`scripts/seed_scenarios.md`.
+
+**Changes from the plan:** the plan has the agent start from `scripts/start_ticket.sh`, which is
+Day 2 work, so these branches were made directly from the tickets without the ticket screen.
+Recorded as such.
+
+**Findings:** GitHub push protection did not block the made-up `PARKWX-` key, so CI is the one
+blocking S2, as the plan wanted. In S3 the summary lists G5 and G6 as blockers alongside G2,
+because a gate that didn't run fails closed; accurate, but the demo should say they were skipped
+because of G2.
+
+**Verified:** CI on PR #2 all green with 3/3 criteria traced; PR #3 blocked by G4 at
+`app/rides/weather.py:8` with every other gate passing; PR #4 blocked by G2 with both expected
+messages and G5 skipped. Both S3 names were 404 on PyPI before the push, and nothing was installed.
