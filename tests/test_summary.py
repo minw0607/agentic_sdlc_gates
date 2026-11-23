@@ -115,13 +115,21 @@ def test_main_writes_evidence_and_exit_code(
     assert "Blocked** by G2 Dependency guard" in step.read_text()
 
 
+BOT = {"login": "github-actions[bot]", "type": "Bot"}
+HUMAN = {"login": "someone", "type": "User"}
+
+
+def _bot_comment(cid: int) -> dict[str, Any]:
+    return {"id": cid, "body": f"{summary.MARKER}\nold", "user": BOT}
+
+
 def test_upsert_comment_updates_existing(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, str]] = []
 
     def fake_api(method: str, url: str, token: str, body: Any = None) -> Any:
         calls.append((method, url))
         if method == "GET":
-            return [{"id": 1, "body": "hi"}, {"id": 7, "body": f"{summary.MARKER}\nold"}]
+            return [{"id": 1, "body": "hi", "user": HUMAN}, _bot_comment(7)]
         return {}
 
     monkeypatch.setattr(summary, "_api", fake_api)
@@ -139,3 +147,37 @@ def test_upsert_comment_creates_when_absent(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(summary, "_api", fake_api)
     assert summary.upsert_comment("o/r", "5", "t", "new", "https://api") == "created"
     assert calls[-1] == ("POST", "https://api/repos/o/r/issues/5/comments")
+
+
+def test_upsert_comment_ignores_a_marker_someone_else_posted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Anyone can paste the marker. Editing their comment would fail, and the summary would
+    # never appear, so only the bot's own comment counts.
+    calls: list[tuple[str, str]] = []
+
+    def fake_api(method: str, url: str, token: str, body: Any = None) -> Any:
+        calls.append((method, url))
+        if method == "GET":
+            return [{"id": 3, "body": f"{summary.MARKER} decoy", "user": HUMAN}]
+        return {}
+
+    monkeypatch.setattr(summary, "_api", fake_api)
+    assert summary.upsert_comment("o/r", "5", "t", "new", "https://api") == "created"
+    assert calls[-1] == ("POST", "https://api/repos/o/r/issues/5/comments")
+
+
+def test_upsert_comment_looks_past_the_first_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str]] = []
+    page1 = [{"id": i, "body": "chatter", "user": HUMAN} for i in range(100)]
+
+    def fake_api(method: str, url: str, token: str, body: Any = None) -> Any:
+        calls.append((method, url))
+        if method == "GET":
+            return page1 if url.endswith("page=1") else [_bot_comment(700)]
+        return {}
+
+    monkeypatch.setattr(summary, "_api", fake_api)
+    assert summary.upsert_comment("o/r", "5", "t", "new", "https://api") == "updated"
+    assert [u for m, u in calls if m == "GET"][-1].endswith("per_page=100&page=2")
+    assert calls[-1] == ("PATCH", "https://api/repos/o/r/issues/comments/700")
