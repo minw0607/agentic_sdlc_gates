@@ -9,15 +9,20 @@ from __future__ import annotations
 import json
 import sys
 
-import _audit
+try:
+    import _audit
+except Exception:  # never fail the tool call; main() reports it
+    _audit = None  # type: ignore[assignment]
 
 
 def main() -> int:
     try:
+        if _audit is None:
+            raise RuntimeError("the _audit module is missing")
         event = json.load(sys.stdin)
         if isinstance(event, dict):
             _audit.record(event, "allowed")
-    except (ValueError, OSError) as e:
+    except Exception as e:
         print(f"audit hook could not record this call: {e}", file=sys.stderr)
     return 0
 
