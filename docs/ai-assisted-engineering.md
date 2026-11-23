@@ -124,3 +124,34 @@ the split of `tests_gate` into run, `args` and `judge`, `tests/test_reusable_wor
 (policy from base, G1, G2, the tests run and judge, G6, the verdict) against a copy of this repo
 with a base commit and a PR commit. G3 and G4 weren't simulated (no scanner binaries locally). Not
 yet run on GitHub.
+
+## Review fixes: agent controls and the lockfile (2026-11-23)
+
+**Delegated:** the rest of the review's high-priority findings. Tests came first, as CLAUDE.md
+asks: 22 new hook tests and 22 new lockfile tests failed before the changes.
+
+**Changes:**
+- **The agent can't change its own controls.** The guard blocks Write and Edit on `.claude/` and
+  `.agent-audit/`, and any shell command that mentions them; `settings.json` has matching deny
+  rules. The Read tool can still look at them.
+- **The guard denies when it fails.** Claude Code lets a call through when a hook exits with an
+  error, so a bug in the guard or a missing `_audit.py` used to mean "allow". Both now deny. A
+  hook that runs past its timeout is still let through; that's out of the hook's hands, and the
+  README says so.
+- **More ways round the guard are closed:** `.env` globs such as `cat .e*`, `git remote
+  add/set-url`, pushes to a URL, combined flags like `git push -uf`, DNS tools, and installing a
+  package by name (`pip install`, `uv add`), which would skip G2. `uv sync` of the lockfile
+  stays allowed.
+- **G2 reads uv.lock**, because that's what `uv sync --frozen` installs. Packages new to the lock
+  get the existence, age and lookalike checks. Sources other than PyPI fail, as do PyPI packages
+  whose files come from another host or whose file hashes were replaced. Hashes added for an
+  existing version pass, because PyPI can publish more wheels for a release later.
+- **The summary comment** is matched by the bot's login as well as the marker, and found past the
+  first 100 comments. Before, anyone could paste the marker and stop the summary appearing.
+
+**Left as is, and documented:** the guard is still a pattern check (an agent can write a script
+and run it), and `.env` is still committed, so its dummy values can be read through git history.
+Untracking it would change scenario S4.
+
+**Verified:** 272 tests pass, ruff and mypy clean. The hooks parse as Python 3.9 and run on the
+system `python3`; G2 passes on this repo's own lockfile.
