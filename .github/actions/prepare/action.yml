@@ -1,0 +1,18 @@
+# Shared first steps for every gate job. Called as a local action after gates-src is checked
+# out, so it always matches the gate code's version.
+name: Prepare gates
+description: Check out the repo under review as data, and load its policy from the base commit.
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        path: target         # the client repo, PR merge commit; data only
+        fetch-depth: 0       # base commit and PR commits are needed for diffs and git log
+        persist-credentials: false
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      with:
+        version: "0.13.6" # keep in step with UV_VERSION in gates.yml
+    - name: Load policy from the base commit
+      shell: bash
+      run: bash "$GITHUB_WORKSPACE/gates-src/.github/actions/prepare/load_policy.sh"

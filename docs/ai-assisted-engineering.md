@@ -93,3 +93,34 @@ messages and G5 skipped. Both S3 names were 404 on PyPI before the push, and not
 **Verified:** 196 tests pass, including 10 planted patterns, 5 clean tickets, 24 blocked and 11
 allowed tool calls, and fail-closed cases. PR #7 green on every gate including G1. PR #8 (S4)
 blocked by G1 only, with G2–G6 passing and the injected text absent from the PR comment.
+
+## Reusable workflow (2026-11-23)
+
+**Delegated:** a review of the repo, then `.github/workflows/gates.yml` (reusable), its shared
+setup in `.github/actions/prepare/`, `defaults/`, the environment-variable options in the gates,
+the split of `tests_gate` into run, `args` and `judge`, `tests/test_reusable_workflow.py`, and
+[docs/reusable-workflow.md](reusable-workflow.md).
+
+**Changes from the plan:**
+- The review found that `factory-gates.yml` runs gate code and policy from the PR being judged,
+  so a PR could edit the gates or `.gitleaks.toml`. The reusable workflow takes code from this
+  repo at a pinned version and policy from the base commit. In this repo, `gates/**`,
+  `defaults/**`, `.gitleaks.toml` and `tickets/**` joined the high-risk paths.
+- G5 is split in two. One job runs the PR's tests and writes raw results; a separate job that
+  runs none of the PR's code judges them.
+- This repo's own PRs stay on `factory-gates.yml` for now: switching renames the required check,
+  and the first PR would be judged by gate code on `main` that doesn't yet know the new options.
+
+**Findings:**
+- A local job-by-job simulation caught two bugs that the unit tests had missed. First, gate
+  steps run inside the repo under review, and `python -m gates.x` imported that repo's `gates/`
+  folder ahead of the trusted copy, so a PR could replace the gates by adding one. Gate steps now
+  run Python with `-P`. Second, the workflow's `GATES_*` variables leaked into the PR's own test
+  run and changed its results, so that step now clears them.
+- `scripts/start_ticket.sh` used `uuidgen`, which isn't on every Linux machine. It now uses
+  Python's `uuid`.
+
+**Verified:** 220 tests pass, ruff and mypy clean. A local simulation ran the jobs in order
+(policy from base, G1, G2, the tests run and judge, G6, the verdict) against a copy of this repo
+with a base commit and a PR commit. G3 and G4 weren't simulated (no scanner binaries locally). Not
+yet run on GitHub.

@@ -1,0 +1,6 @@
+# Kit default for the reusable workflow: gitleaks' built-in rules. Applies only until the repo
+# under review commits its own .gitleaks.toml to its main branch.
+title = "agentic_sdlc_gates default"
+
+[extend]
+useDefault = true

@@ -124,7 +124,15 @@ approved_packages: [fastapi, pydantic, ...]
 high_risk_paths: [app/payments/**, .github/**, gates.yaml, .claude/**]
 ```
 
-To use the gates in another Python repo today, copy `gates/`, `gates.yaml`, `.gitleaks.toml`, `.github/workflows/factory-gates.yml` and, for the agent controls, `.claude/`; then make **Gates verdict** a required check. A reusable workflow (`uses: minw0607/agentic_sdlc_gates/...@v1`) is planned but not built yet.
+To use the gates in another Python repo, call the reusable workflow with one line:
+
+```yaml
+jobs:
+  gates:
+    uses: minw0607/agentic_sdlc_gates/.github/workflows/gates.yml@<commit-sha>  # v1.0.0
+```
+
+The gate code then comes from this repo, and policy (`gates.yaml`, `.gitleaks.toml`, tickets) from the other repo's `main` branch, never from the pull request being judged. Make **`gates / Gates verdict`** a required check. [`docs/reusable-workflow.md`](docs/reusable-workflow.md) covers setup, releases and what isn't covered yet. For the agent controls, copy `.claude/`.
 
 ## OWASP mapping
 
@@ -154,8 +162,10 @@ As of 22 November 2026. A 2-day build, done with Claude Code; the plan is in [`d
 - **A live check of the guard hook** inside an interactive Claude Code session. The hook's output format is unit-tested; seeing Claude Code honour it end to end, and the terminal part of S4, is still to be run and recorded.
 - **The demo recording** (4–5 minutes) and a GIF for this page.
 
+**Built, not yet run on a client repo**
+- A reusable workflow ([`gates.yml`](.github/workflows/gates.yml)), so another repo can adopt the gates with one `uses:` line. Unit-tested and simulated locally job by job; the first `v1.0.0` tag and a trial on a separate repo are still to do. This repo's own PRs still run `factory-gates.yml`.
+
 **Not built yet**
-- A reusable workflow, so another repo can adopt the gates with one `uses:` line.
 - An AI code review step. Every gate here is a fixed rule that gives the same answer each time. A model-based reviewer would be added in report-only mode, and would treat the diff as untrusted input, like tickets.
 
 ## What this is and isn't

@@ -1,0 +1,23 @@
+# Copy to .github/workflows/release-gates.yml in the repo that should use the gates.
+# It is the only workflow file that repo needs.
+# Branch protection on main then requires the check "gates / Gates verdict".
+name: release-gates
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: write # lets the verdict job post its summary comment
+
+concurrency:
+  group: release-gates-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    # Pin to a full commit SHA, not just a tag; Dependabot can keep it up to date.
+    uses: minw0607/agentic_sdlc_gates/.github/workflows/gates.yml@<full-commit-sha> # v1.0.0
+    with:
+      python-version: "3.11"

@@ -1,0 +1,38 @@
+# Kit defaults for the reusable workflow. They apply only until the repo under review commits
+# its own gates.yaml to its main branch; copy this file there and adjust it.
+# Each gate's `mode` is fail (blocks the merge), warn (reported only) or "off" (quoted).
+version: 1
+
+gates:
+  ticket_screen: { mode: fail }   # G1
+  dep_guard: { mode: fail }       # G2
+  osv: { mode: fail }             # G3
+  secret_scan: { mode: fail }     # G4
+  tests: { mode: fail }           # G5
+  traceability: { mode: fail }    # G6
+
+coverage:
+  floor: 80
+  source: ["."]                   # set this to your package folder(s); "." also counts tests
+
+dep_guard:
+  lookalike_max_distance: 2
+  lookalike_min_length: 5
+  min_age_days: 30
+  unapproved: warn                # nothing is approved yet, so every new dependency warns
+  popular_names: gates/data/top_pypi.txt   # ships with the kit
+
+approved_packages: []
+
+high_risk_paths:
+  - .github/**
+  - gates.yaml
+  - .gitleaks.toml
+  - tickets/**
+
+tickets:
+  dir: tickets
+  key_pattern: "[A-Z][A-Z0-9]+-[0-9]+"
+  commit_trailer: "Ticket"
+  agent_session_trailer: "Agent-Session"
+  no_ticket_label: "no-ticket"
