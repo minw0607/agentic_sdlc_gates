@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from enum import StrEnum
 from pathlib import Path
@@ -10,6 +11,9 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 DEFAULT_PATH = Path("gates.yaml")
+# The kit's own folder (the parent of gates/). In the reusable workflow this is the trusted
+# checkout of agentic_sdlc_gates, not the repo under review.
+KIT_ROOT = Path(__file__).resolve().parent.parent
 GATE_NAMES = ("ticket_screen", "dep_guard", "osv", "secret_scan", "tests", "traceability")
 
 
@@ -89,6 +93,30 @@ def normalize_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def load_config(path: Path = DEFAULT_PATH) -> GatesConfig:
-    with path.open(encoding="utf-8") as f:
+def config_path() -> Path:
+    """gates.yaml, or GATES_CONFIG when set (the reusable workflow reads policy from the base
+    commit of the repo under review and points this at it)."""
+    return Path(os.environ.get("GATES_CONFIG") or DEFAULT_PATH)
+
+
+def load_config(path: Path | None = None) -> GatesConfig:
+    with (path or config_path()).open(encoding="utf-8") as f:
         return GatesConfig.model_validate(yaml.safe_load(f))
+
+
+def tickets_dir(cfg: GatesConfig) -> Path:
+    """Where tickets are read from: GATES_TICKETS_DIR when set, else ``tickets.dir``."""
+    return Path(os.environ.get("GATES_TICKETS_DIR") or cfg.tickets.dir)
+
+
+def raw_dir() -> Path:
+    """Where raw test results (junit.xml, coverage.json, ac_map.json) live: GATES_RAW_DIR when
+    set, else reports/."""
+    return Path(os.environ.get("GATES_RAW_DIR") or "reports")
+
+
+def kit_path(path: str) -> Path:
+    """A data file that ships with the kit. Relative paths resolve against the kit's folder,
+    never the current directory, so the repo under review can't substitute its own copy."""
+    p = Path(path)
+    return p if p.is_absolute() else KIT_ROOT / p

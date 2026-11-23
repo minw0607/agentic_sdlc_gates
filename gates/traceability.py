@@ -10,7 +10,8 @@ Fails when:
 The trace it builds (criteria, tests, commits, agent session ids) feeds the PR summary.
 
 Environment: GATES_PR_TITLE, GATES_PR_LABELS (comma separated), GATES_BASE_REF,
-GATES_HEAD_REF (the PR's head commit; merge commits are skipped).
+GATES_HEAD_REF (the PR's head commit; merge commits are skipped), GATES_TICKETS_DIR and
+GATES_RAW_DIR (optional; where tickets and ac_map.json are read from).
 """
 
 from __future__ import annotations
@@ -25,11 +26,10 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from gates.config import GatesConfig
+from gates.config import GatesConfig, raw_dir, tickets_dir
 from gates.report import CannotEvaluate, Finding, Outcome, Result, env, run_gate
 from gates.tickets import Ticket, load_ticket
 
-AC_MAP = Path("reports/ac_map.json")
 FIELD, RECORD = "\x1f", "\x1e"
 
 
@@ -95,6 +95,10 @@ def trace_criteria(ticket: Ticket, ac_map: dict[str, Any]) -> list[dict[str, Any
     return rows
 
 
+def ac_map_path() -> Path:
+    return raw_dir() / "ac_map.json"
+
+
 def judge(
     title: str,
     labels: list[str],
@@ -135,7 +139,7 @@ def judge(
             details={"ticket": {"key": key}, "commits": commit_rows},
         )
     if ac_map is None:
-        raise CannotEvaluate(f"{AC_MAP} not found; the tests gate did not produce it")
+        raise CannotEvaluate(f"{ac_map_path()} not found; the tests gate did not produce it")
 
     criteria = trace_criteria(ticket, ac_map)
     findings: list[Finding] = []
@@ -186,8 +190,9 @@ def gate(cfg: GatesConfig) -> Outcome:
         cfg.tickets.commit_trailer,
         cfg.tickets.agent_session_trailer,
     )
-    ac_map = json.loads(AC_MAP.read_text()) if AC_MAP.exists() else None
-    return judge(title, labels, cfg, Path(cfg.tickets.dir), ac_map, commits)
+    path = ac_map_path()
+    ac_map = json.loads(path.read_text()) if path.exists() else None
+    return judge(title, labels, cfg, tickets_dir(cfg), ac_map, commits)
 
 
 def main() -> int:

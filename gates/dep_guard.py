@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from gates.config import GatesConfig, Mode, normalize_name
+from gates.config import GatesConfig, Mode, kit_path, normalize_name
 from gates.report import CannotEvaluate, Finding, Outcome, Result, env, run_gate
 
 PEP508_NAME = re.compile(r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)")
@@ -252,7 +252,7 @@ def gate(cfg: GatesConfig) -> Outcome:
     if not head_path.exists():
         raise CannotEvaluate("pyproject.toml not found")
     new = new_dependencies(base_pyproject(base_ref), head_path.read_text(encoding="utf-8"))
-    popular = load_popular(Path(cfg.dep_guard.popular_names))
+    popular = load_popular(kit_path(cfg.dep_guard.popular_names))
     return check(new, cfg, popular, pypi_lookup)
 
 

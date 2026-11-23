@@ -1,9 +1,19 @@
-"""G5 tests and coverage: run pytest with coverage, fail on any failing test or a low floor.
+"""G5 tests and coverage: fail on any failing test or coverage below the floor.
 
-The coverage floor and the measured source folders come from gates.yaml. pytest also
-writes reports/ac_map.json (via gates/pytest_ac.py), which traceability (G6) uses.
+The coverage floor and the measured source folders come from gates.yaml. pytest also writes
+ac_map.json (via gates/pytest_ac.py), which traceability (G6) uses.
 
-Runs only after the dependency guard passed, because it installs the PR's dependencies.
+Three ways to run it:
+
+- ``python -m gates.tests_gate``: run pytest here, then judge. Used by this repo's own workflow.
+- ``python -m gates.tests_gate args``: print the pytest coverage arguments from policy.
+- ``python -m gates.tests_gate judge``: judge results another job produced (``junit.xml``,
+  ``coverage.json`` and ``pytest_exit`` in GATES_RAW_DIR) without running anything. The
+  reusable workflow runs the PR's tests in one job and judges them here, in a job that never
+  executes the PR's code, so that code can't write its own gate report.
+
+Raw results live in GATES_RAW_DIR, default reports/. Runs only after the dependency guard
+passed, because running the tests installs the PR's dependencies.
 """
 
 from __future__ import annotations
@@ -14,11 +24,14 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from gates.config import GatesConfig
+from gates.config import GatesConfig, load_config, raw_dir
 from gates.report import CannotEvaluate, Finding, Outcome, Result, run_gate
 
-JUNIT = Path("reports/junit.xml")
-COVERAGE = Path("reports/coverage.json")
+
+def raw_files() -> tuple[Path, Path, Path]:
+    """junit.xml, coverage.json and pytest_exit in the raw results folder."""
+    d = raw_dir()
+    return d / "junit.xml", d / "coverage.json", d / "pytest_exit"
 
 
 def failed_tests(junit_xml: str) -> list[str]:
@@ -64,19 +77,53 @@ def judge(junit_xml: str, coverage_pct: float, floor: float, pytest_exit: int) -
     )
 
 
+def pytest_args(cfg: GatesConfig) -> list[str]:
+    return [f"--cov={src}" for src in cfg.coverage.source]
+
+
+def judge_files(cfg: GatesConfig, pytest_exit: int) -> Outcome:
+    junit, coverage, _ = raw_files()
+    if pytest_exit not in (0, 1) or not junit.exists() or not coverage.exists():
+        raise CannotEvaluate(f"pytest exited {pytest_exit} without complete results")
+    try:
+        pct = float(json.loads(coverage.read_text())["totals"]["percent_covered"])
+    except (ValueError, KeyError, TypeError) as e:
+        raise CannotEvaluate(f"{coverage.name} is unreadable: {e}") from e
+    return judge(junit.read_text(), pct, cfg.coverage.floor, pytest_exit)
+
+
 def gate(cfg: GatesConfig) -> Outcome:
-    JUNIT.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [sys.executable, "-m", "pytest", f"--junitxml={JUNIT}"]
-    cmd += [f"--cov={s}" for s in cfg.coverage.source]
-    cmd += [f"--cov-report=json:{COVERAGE}", "--cov-report=term"]
+    """Run pytest with coverage here, then judge."""
+    junit, coverage, _ = raw_files()
+    junit.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [sys.executable, "-m", "pytest", f"--junitxml={junit}", *pytest_args(cfg)]
+    cmd += [f"--cov-report=json:{coverage}", "--cov-report=term"]
     res = subprocess.run(cmd)
-    if res.returncode not in (0, 1) or not JUNIT.exists() or not COVERAGE.exists():
-        raise CannotEvaluate(f"pytest exited {res.returncode} without complete results")
-    pct = float(json.loads(COVERAGE.read_text())["totals"]["percent_covered"])
-    return judge(JUNIT.read_text(), pct, cfg.coverage.floor, res.returncode)
+    return judge_files(cfg, res.returncode)
 
 
-def main() -> int:
+def judge_raw(cfg: GatesConfig) -> Outcome:
+    """Judge results another job produced. Runs nothing."""
+    _, _, exit_file = raw_files()
+    if not exit_file.exists():
+        raise CannotEvaluate(f"raw test results not found in {exit_file.parent}/")
+    try:
+        code = int(exit_file.read_text().strip())
+    except ValueError as e:
+        raise CannotEvaluate(f"{exit_file.name} is unreadable: {e}") from e
+    return judge_files(cfg, code)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    if args == ["args"]:
+        print(" ".join(pytest_args(load_config())))
+        return 0
+    if args == ["judge"]:
+        return run_gate("tests", "G5", "Tests and coverage", judge_raw)
+    if args:
+        print("usage: python -m gates.tests_gate [args|judge]", file=sys.stderr)
+        return 2
     return run_gate("tests", "G5", "Tests and coverage", gate)
 
 
