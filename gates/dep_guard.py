@@ -10,6 +10,14 @@ each new one it checks, in order:
 (c) its first release is at least ``min_age_days`` old;
 (d) it is on ``approved_packages`` (by default a warning, not a failure).
 
+It also compares uv.lock, which is what ``uv sync --frozen`` actually installs:
+
+- a package new to the lockfile that no one declared (a dependency of a dependency) gets
+  checks (a) to (c), but not (d);
+- a package that installs from anywhere but PyPI (git, a URL, a path, another index) fails;
+- a PyPI package whose files come from another host, or whose recorded file hashes were
+  replaced for the same version, fails.
+
 This runs before anything is installed and reads PyPI's JSON API only. A package that
 fails here must never be installed, so the tests gate (G5) depends on this one.
 
@@ -24,17 +32,21 @@ import subprocess
 import sys
 import tomllib
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from gates.config import GatesConfig, Mode, kit_path, normalize_name
+from gates.config import DepGuard, GatesConfig, Mode, kit_path, normalize_name
 from gates.report import CannotEvaluate, Finding, Outcome, Result, env, run_gate
 
 PEP508_NAME = re.compile(r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)")
 PYPI_URL = "https://pypi.org/pypi/{name}/json"
+LOCKFILE = "uv.lock"
+PYPI_INDEX = "https://pypi.org/simple"
+PYPI_FILES_HOST = "files.pythonhosted.org"
 
 
 @dataclass(frozen=True)
@@ -73,6 +85,104 @@ def new_dependencies(base_text: str | None, head_text: str) -> dict[str, str]:
     head = declared_dependencies(head_text)
     base = declared_dependencies(base_text) if base_text else {}
     return {name: spec for name, spec in sorted(head.items()) if name not in base}
+
+
+# --- the lockfile --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LockedPackage:
+    name: str
+    version: str
+    source: dict[str, str]
+    hashes: frozenset[str]
+    file_hosts: frozenset[str]
+
+    @property
+    def is_this_project(self) -> bool:
+        return self.source.get("virtual") == "." or self.source.get("editable") == "."
+
+
+@dataclass
+class LockChanges:
+    """What a PR changed in uv.lock: packages new to it, and problems found."""
+
+    new: dict[str, str]  # normalized name -> version
+    findings: list[Finding] = field(default_factory=list)
+
+
+def locked_packages(lock_text: str) -> list[LockedPackage]:
+    out = []
+    for p in tomllib.loads(lock_text).get("package", []):
+        files = [p["sdist"]] if isinstance(p.get("sdist"), dict) else []
+        files += [w for w in p.get("wheels", []) if isinstance(w, dict)]
+        out.append(
+            LockedPackage(
+                name=normalize_name(str(p.get("name", ""))),
+                version=str(p.get("version", "")),
+                source={str(k): str(v) for k, v in (p.get("source") or {}).items()},
+                hashes=frozenset(str(f["hash"]) for f in files if f.get("hash")),
+                file_hosts=frozenset(
+                    urllib.parse.urlsplit(str(f["url"])).hostname or "?"
+                    for f in files
+                    if f.get("url")
+                ),
+            )
+        )
+    return out
+
+
+def _source_problem(pkg: LockedPackage) -> str | None:
+    if pkg.is_this_project or pkg.source.get("registry") == PYPI_INDEX:
+        return None
+    kind, value = next(iter(pkg.source.items()), ("an unknown source", ""))
+    return f"installs from {kind} {value}".rstrip() + ", not PyPI"
+
+
+def lock_changes(base_text: str | None, head_text: str) -> LockChanges:
+    base = locked_packages(base_text) if base_text else []
+    base_names = {p.name for p in base}
+    base_by_version = {(p.name, p.version): p for p in base}
+    base_sources = {(p.name, tuple(sorted(p.source.items()))) for p in base}
+    changes = LockChanges(new={})
+    for pkg in locked_packages(head_text):
+        if pkg.is_this_project:
+            continue
+        if pkg.name not in base_names:
+            changes.new.setdefault(pkg.name, pkg.version)
+        problem = _source_problem(pkg)
+        if problem and (pkg.name, tuple(sorted(pkg.source.items()))) not in base_sources:
+            changes.findings.append(
+                Finding(result=Result.FAIL, message=f"{pkg.name}: {problem}", file=LOCKFILE)
+            )
+        if problem is None and pkg.source.get("registry") == PYPI_INDEX:
+            foreign = sorted(pkg.file_hosts - {PYPI_FILES_HOST})
+            if foreign:
+                changes.findings.append(
+                    Finding(
+                        result=Result.FAIL,
+                        message=(
+                            f"{pkg.name} {pkg.version}: downloads files from "
+                            f"{', '.join(foreign)}, not PyPI"
+                        ),
+                        file=LOCKFILE,
+                    )
+                )
+        old = base_by_version.get((pkg.name, pkg.version))
+        # PyPI may add wheels to a release later, so new hashes are fine; a removed or
+        # replaced one means the files for this version were swapped.
+        if old and old.source == pkg.source and not old.hashes <= pkg.hashes:
+            changes.findings.append(
+                Finding(
+                    result=Result.FAIL,
+                    message=(
+                        f"{pkg.name} {pkg.version}: file hashes changed in uv.lock "
+                        "for the same version"
+                    ),
+                    file=LOCKFILE,
+                )
+            )
+    return changes
 
 
 # --- lookalikes ----------------------------------------------------------------------------
@@ -152,54 +262,69 @@ def pypi_lookup(name: str, timeout: float = 10.0, attempts: int = 3) -> PackageI
 # --- the check -----------------------------------------------------------------------------
 
 
+def _package_findings(
+    name: str,
+    info: PackageInfo,
+    approved: bool,
+    popular: list[str],
+    policy: DepGuard,
+    now: datetime,
+    row: dict[str, str | int | None],
+) -> list[Finding]:
+    """Checks (a) to (c) for one package. Approved packages skip the lookalike check."""
+    findings: list[Finding] = []
+    if not info.exists:
+        findings.append(Finding(result=Result.FAIL, message=f"{name}: not found on PyPI"))
+    if not approved:
+        near = closest_popular(
+            name, popular, policy.lookalike_max_distance, policy.lookalike_min_length
+        )
+        if near:
+            findings.append(
+                Finding(
+                    result=Result.FAIL,
+                    message=f"{name}: looks like `{near[0]}` ({near[1]} edit(s) away)",
+                )
+            )
+            row["looks_like"] = near[0]
+    if info.exists:
+        if info.first_release is None:
+            findings.append(
+                Finding(result=Result.FAIL, message=f"{name}: has no released files on PyPI")
+            )
+        else:
+            age = (now - info.first_release).days
+            row["age_days"] = age
+            if age < policy.min_age_days:
+                findings.append(
+                    Finding(
+                        result=Result.FAIL,
+                        message=(
+                            f"{name}: first released {age} day(s) ago "
+                            f"(policy: at least {policy.min_age_days})"
+                        ),
+                    )
+                )
+    return findings
+
+
 def check(
     new: dict[str, str],
     cfg: GatesConfig,
     popular: list[str],
     lookup: PyPILookup,
     now: datetime | None = None,
+    lock: LockChanges | None = None,
 ) -> Outcome:
     now = now or datetime.now(UTC)
     policy = cfg.dep_guard
-    findings: list[Finding] = []
+    findings: list[Finding] = list(lock.findings) if lock else []
     rows: list[dict[str, str | int | None]] = []
 
     for name, spec in new.items():
         approved = name in cfg.approved_packages
-        info = lookup(name)
         row: dict[str, str | int | None] = {"name": name, "spec": spec, "approved": int(approved)}
-        if not info.exists:
-            findings.append(Finding(result=Result.FAIL, message=f"{name}: not found on PyPI"))
-        if not approved:
-            near = closest_popular(
-                name, popular, policy.lookalike_max_distance, policy.lookalike_min_length
-            )
-            if near:
-                findings.append(
-                    Finding(
-                        result=Result.FAIL,
-                        message=f"{name}: looks like `{near[0]}` ({near[1]} edit(s) away)",
-                    )
-                )
-                row["looks_like"] = near[0]
-        if info.exists:
-            if info.first_release is None:
-                findings.append(
-                    Finding(result=Result.FAIL, message=f"{name}: has no released files on PyPI")
-                )
-            else:
-                age = (now - info.first_release).days
-                row["age_days"] = age
-                if age < policy.min_age_days:
-                    findings.append(
-                        Finding(
-                            result=Result.FAIL,
-                            message=(
-                                f"{name}: first released {age} day(s) ago "
-                                f"(policy: at least {policy.min_age_days})"
-                            ),
-                        )
-                    )
+        findings += _package_findings(name, lookup(name), approved, popular, policy, now, row)
         if not approved and policy.unapproved is not Mode.OFF:
             sev = Result.FAIL if policy.unapproved is Mode.FAIL else Result.WARN
             findings.append(
@@ -207,43 +332,61 @@ def check(
             )
         rows.append(row)
 
+    # New to uv.lock but not declared: dependencies of dependencies. Nobody chose them, so
+    # the approved list doesn't apply, but they must still exist, be established and not be
+    # lookalikes.
+    transitive = {n: v for n, v in (lock.new if lock else {}).items() if n not in new}
+    for name, version in transitive.items():
+        approved = name in cfg.approved_packages
+        row = {"name": name, "spec": version, "approved": int(approved), "via": LOCKFILE}
+        findings += _package_findings(name, lookup(name), approved, popular, policy, now, row)
+        rows.append(row)
+
     details = {"new_dependencies": rows}
-    if not new:
-        return Outcome(result=Result.PASS, reason="No new dependencies", details=details)
     failed = [f for f in findings if f.result is Result.FAIL]
     if failed:
-        names = sorted({f.message.split(":")[0] for f in failed})
+        names = sorted({f.message.split(":")[0].split(" ")[0] for f in failed})
         return Outcome(
             result=Result.FAIL,
             reason=f"Blocked before install: {', '.join(names)}",
             findings=findings,
             details=details,
         )
+    if not new and not transitive and not findings:
+        return Outcome(result=Result.PASS, reason="No new dependencies", details=details)
     if findings:
         return Outcome(
             result=Result.WARN,
-            reason=f"{len(new)} new dependency(ies) need review",
+            reason=f"{len(new) + len(transitive)} new dependency(ies) need review",
             findings=findings,
             details=details,
         )
+    parts = []
+    if new:
+        parts.append(f"{len(new)} new dependency(ies)")
+    if transitive:
+        parts.append(f"{len(transitive)} new package(s) in {LOCKFILE}")
     return Outcome(
         result=Result.PASS,
-        reason=f"{len(new)} new dependency(ies) checked",
+        reason=f"{' and '.join(parts)} checked",
         findings=findings,
         details=details,
     )
 
 
-def base_pyproject(base_ref: str) -> str | None:
-    """pyproject.toml at the base commit, or None if it didn't exist there."""
-    res = subprocess.run(
-        ["git", "show", f"{base_ref}:pyproject.toml"], capture_output=True, text=True
-    )
+def base_file(base_ref: str, path: str) -> str | None:
+    """A file at the base commit, or None if it didn't exist there."""
+    res = subprocess.run(["git", "show", f"{base_ref}:{path}"], capture_output=True, text=True)
     if res.returncode == 0:
         return res.stdout
     if "does not exist" in res.stderr or "exists on disk, but not in" in res.stderr:
         return None
-    raise CannotEvaluate(f"could not read base pyproject.toml: {res.stderr.strip()}")
+    raise CannotEvaluate(f"could not read base {path}: {res.stderr.strip()}")
+
+
+def base_pyproject(base_ref: str) -> str | None:
+    """pyproject.toml at the base commit, or None if it didn't exist there."""
+    return base_file(base_ref, "pyproject.toml")
 
 
 def gate(cfg: GatesConfig) -> Outcome:
@@ -253,7 +396,15 @@ def gate(cfg: GatesConfig) -> Outcome:
         raise CannotEvaluate("pyproject.toml not found")
     new = new_dependencies(base_pyproject(base_ref), head_path.read_text(encoding="utf-8"))
     popular = load_popular(kit_path(cfg.dep_guard.popular_names))
-    return check(new, cfg, popular, pypi_lookup)
+    head_lock = Path(LOCKFILE)
+    if head_lock.exists():
+        lock = lock_changes(base_file(base_ref, LOCKFILE), head_lock.read_text(encoding="utf-8"))
+    else:
+        missing = Finding(
+            result=Result.WARN, message=f"No {LOCKFILE}: only pyproject.toml was checked"
+        )
+        lock = LockChanges(new={}, findings=[missing])
+    return check(new, cfg, popular, pypi_lookup, lock=lock)
 
 
 def main() -> int:
