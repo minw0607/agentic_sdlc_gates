@@ -8,3 +8,7 @@
 /.github/       @minwu-ai
 /gates.yaml     @minwu-ai
 /.claude/       @minwu-ai
+/gates/         @minwu-ai
+/defaults/      @minwu-ai
+/.gitleaks.toml @minwu-ai
+/tickets/       @minwu-ai

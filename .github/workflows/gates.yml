@@ -1,0 +1,231 @@
+# Reusable release gates. Another repo calls this with one `uses:` line; see
+# examples/client/.github/workflows/release-gates.yml. Three rules make it trustworthy:
+#
+#   1. Gate CODE comes from this repo, at the release this file was published under.
+#      The PR under review can't edit it.
+#   2. Gate POLICY (gates.yaml, .gitleaks.toml, tickets/) comes from the BASE commit of the
+#      client repo, never from the PR. A PR can propose a policy change, but it is judged by
+#      the policy already on main.
+#   3. The PR's own code runs in exactly one job (tests_run), with a read-only token, and
+#      produces raw results only. A separate trusted job judges them.
+#
+# The client's branch protection requires one check: "gates / Gates verdict".
+
+name: release-gates
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version for the tests of the repo under review
+        type: string
+        default: "3.11"
+      gates-ref:
+        description: >-
+          Version of the gate code to run (tag or commit of agentic_sdlc_gates). Leave empty
+          to use the release this workflow belongs to.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  # The fallback ref is bumped at each release and must equal the tag it is published under.
+  GATES_REPO: minw0607/agentic_sdlc_gates
+  GATES_REF: ${{ inputs.gates-ref || 'v1.0.0' }}
+
+  GATES_BASE_REF: ${{ github.event.pull_request.base.sha }}
+  GATES_HEAD_REF: ${{ github.event.pull_request.head.sha }}
+  GATES_CONFIG: ${{ github.workspace }}/policy/gates.yaml
+  GATES_GITLEAKS_CONFIG: ${{ github.workspace }}/policy/gitleaks.toml
+  GATES_TICKETS_DIR: ${{ github.workspace }}/policy/tickets
+  GATES_REPORTS_DIR: ${{ github.workspace }}/reports
+  GATES_RAW_DIR: ${{ github.workspace }}/raw
+  PYTHONPATH: ${{ github.workspace }}/gates-src
+  # -P: don't put the current folder on sys.path. Gate steps run inside target/, and without
+  # it `python -m gates.x` would import a gates/ package the PR planted there.
+  GATE_PY: uv run --no-project --python 3.11 --with pydantic==2.14.3 --with pyyaml==6.0.3 python -P
+  UV_VERSION: "0.13.6"
+  OSV_VERSION: v2.7.0
+  OSV_SHA256: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+  GITLEAKS_VERSION: 8.30.1
+  GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+
+jobs:
+  ticket_screen:
+    name: G1 Ticket screen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ env.GATES_REPO }}", ref: "${{ env.GATES_REF }}", path: gates-src, persist-credentials: false }
+      - uses: ./gates-src/.github/actions/prepare
+      - name: Screen the PR's ticket
+        working-directory: target
+        env:
+          GATES_PR_TITLE: ${{ github.event.pull_request.title }} # via env, never interpolated
+        run: $GATE_PY -m gates.ticket_screen
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: report-ticket_screen, path: reports/ticket_screen.json, if-no-files-found: ignore }
+
+  dep_guard:
+    name: G2 Dependency guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ env.GATES_REPO }}", ref: "${{ env.GATES_REF }}", path: gates-src, persist-credentials: false }
+      - uses: ./gates-src/.github/actions/prepare
+      - name: Check new dependencies (nothing is installed)
+        working-directory: target
+        run: $GATE_PY -m gates.dep_guard
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: report-dep_guard, path: reports/dep_guard.json, if-no-files-found: ignore }
+
+  osv:
+    name: G3 Known vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ env.GATES_REPO }}", ref: "${{ env.GATES_REF }}", path: gates-src, persist-credentials: false }
+      - uses: ./gates-src/.github/actions/prepare
+      - name: Install OSV-Scanner (checksum verified)
+        run: |
+          curl -sSfL -o /usr/local/bin/osv-scanner \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SHA256}  /usr/local/bin/osv-scanner" | sha256sum -c -
+          chmod +x /usr/local/bin/osv-scanner
+      - name: Scan uv.lock against the base branch
+        working-directory: target
+        run: $GATE_PY -m gates.osv_gate
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: report-osv, path: reports/osv.json, if-no-files-found: ignore }
+
+  secret_scan:
+    name: G4 Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ env.GATES_REPO }}", ref: "${{ env.GATES_REF }}", path: gates-src, persist-credentials: false }
+      - uses: ./gates-src/.github/actions/prepare
+      - name: Install gitleaks (checksum verified)
+        run: |
+          f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "/tmp/$f" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$f"
+          echo "${GITLEAKS_SHA256}  /tmp/$f" | sha256sum -c -
+          tar -xzf "/tmp/$f" -C /usr/local/bin gitleaks
+      - name: Scan the PR's commits (rules from the base branch)
+        working-directory: target
+        run: $GATE_PY -m gates.secret_scan
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: report-secret_scan, path: reports/secret_scan.json, if-no-files-found: ignore }
+
+  # The only job that executes the PR's code. It gets a read-only token and writes raw
+  # results; it never writes a gate report, so it can't mark itself as passed.
+  tests_run:
+    name: G5 Tests (run)
+    needs: dep_guard # never install a dependency the guard rejected
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ env.GATES_REPO }}", ref: "${{ env.GATES_REF }}", path: gates-src, persist-credentials: false }
+      - uses: ./gates-src/.github/actions/prepare
+      - name: Work out pytest arguments from policy (trusted)
+        id: args
+        run: echo "cov=$($GATE_PY -m gates.tests_gate args)" >> "$GITHUB_OUTPUT"
+      - name: Install the PR's locked dependencies
+        working-directory: target
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: uv sync --frozen --python "$PYTHON_VERSION"
+      - name: Run the PR's tests (untrusted; raw results only)
+        working-directory: target
+        env:
+          COV_ARGS: ${{ steps.args.outputs.cov }}
+        run: |
+          raw="$GATES_RAW_DIR"
+          mkdir -p "$raw"
+          # The gates' own settings are for the gates, not for the code under test.
+          for v in $(compgen -e | grep '^GATES_'); do unset "$v"; done
+          set +e
+          # shellcheck disable=SC2086  # COV_ARGS is a list of --cov=... from base policy
+          uv run --no-sync python -m pytest -p gates.pytest_ac \
+            -o ac_map_path="$raw/ac_map.json" \
+            --junitxml="$raw/junit.xml" \
+            $COV_ARGS --cov-report=json:"$raw/coverage.json" --cov-report=term
+          echo $? > "$raw/pytest_exit"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: raw-tests, path: raw/, if-no-files-found: ignore }
+
+  tests:
+    name: G5 Tests and coverage
+    needs: tests_run
+    if: ${{ !cancelled() && needs.tests_run.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ env.GATES_REPO }}", ref: "${{ env.GATES_REF }}", path: gates-src, persist-credentials: false }
+      - uses: ./gates-src/.github/actions/prepare
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true # missing raw results -> the judge reports not_evaluated
+        with: { name: raw-tests, path: raw }
+      - name: Judge the raw results (trusted; runs no PR code)
+        run: $GATE_PY -m gates.tests_gate judge
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: report-tests, path: reports/tests.json, if-no-files-found: ignore }
+
+  traceability:
+    name: G6 Traceability
+    needs: tests_run
+    if: ${{ !cancelled() && needs.tests_run.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ env.GATES_REPO }}", ref: "${{ env.GATES_REF }}", path: gates-src, persist-credentials: false }
+      - uses: ./gates-src/.github/actions/prepare
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with: { name: raw-tests, path: raw }
+      - name: Trace ticket to criteria, tests and commits
+        working-directory: target
+        env:
+          GATES_PR_TITLE: ${{ github.event.pull_request.title }}
+          GATES_PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: $GATE_PY -m gates.traceability
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: report-traceability, path: reports/traceability.json, if-no-files-found: ignore }
+
+  verdict:
+    name: Gates verdict
+    needs: [ticket_screen, dep_guard, osv, secret_scan, tests, traceability]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # the caller must grant this too
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ env.GATES_REPO }}", ref: "${{ env.GATES_REF }}", path: gates-src, persist-credentials: false }
+      - uses: ./gates-src/.github/actions/prepare
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { pattern: report-*, path: reports, merge-multiple: true }
+      - name: Summarize, comment on the PR, and decide
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GATES_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GATES_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: $GATE_PY -m gates.summary
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: evidence
+          path: |
+            reports/evidence.json
+            reports/summary.md

@@ -58,7 +58,7 @@ All gates run in [`.github/workflows/factory-gates.yml`](.github/workflows/facto
 | ID | Gate | Fails when |
 |---|---|---|
 | G1 | Ticket screen ([`ticket_screen.py`](gates/ticket_screen.py)) | The PR's ticket carries instructions aimed at the AI: hidden HTML comments, text addressed to the assistant, "ignore previous instructions", requests to read secrets or send data to a URL, "don't mention it", or invisible and full-width characters |
-| G2 | Dependency guard ([`dep_guard.py`](gates/dep_guard.py)) | A new dependency doesn't exist on PyPI, is within 2 edits of a popular package without being it, or was first released under 30 days ago. Runs before anything is installed. |
+| G2 | Dependency guard ([`dep_guard.py`](gates/dep_guard.py)) | A new dependency doesn't exist on PyPI, is within 2 edits of a popular package without being it, or was first released under 30 days ago. The same goes for packages new to `uv.lock` that nobody declared. Also fails when `uv.lock` installs from anywhere but PyPI, or swaps a package's files for the same version. Runs before anything is installed. |
 | G3 | Known vulnerabilities ([OSV-Scanner](https://github.com/google/osv-scanner)) | `uv.lock` gains a known vulnerability compared with the base branch |
 | G4 | Secret scan ([gitleaks](https://github.com/gitleaks/gitleaks)) | Any of the PR's commits contains a secret |
 | G5 | Tests and coverage | A test fails, or coverage of `app/` drops below the floor. Never runs if G2 failed. |
@@ -76,8 +76,8 @@ def test_max_wait_zero_returns_no_wait_rides_and_never_closed(client): ...
 
 Claude Code picks these up from [`.claude/settings.json`](.claude/settings.json) when it runs in this repo:
 
-- **Deny rules** for reading `.env` and `secrets/`, `curl`, `wget` and web fetches.
-- **A guard hook** ([`guard.py`](.claude/hooks/guard.py), PreToolUse) that catches what path rules miss, such as `python -c "open('.env')"` or `requests.post(...)` inside a shell command, plus force pushes. It answers with a plain-language reason, and blocks if it can't read the call.
+- **Deny rules** for reading `.env` and `secrets/`, `curl`, `wget` and web fetches, and for changing `.claude/` or the audit log.
+- **A guard hook** ([`guard.py`](.claude/hooks/guard.py), PreToolUse) that catches what path rules miss, such as `python -c "open('.env')"`, `cat .e*` or `requests.post(...)` inside a shell command. It also blocks force pushes, new git remotes, pushes to a URL, installing packages by name, and any change to the agent's own controls. It answers with a plain-language reason, and blocks if it can't read the call or fails itself. A hook that runs past its timeout is still let through, which a hook can't prevent.
 - **An audit log** ([`audit.py`](.claude/hooks/audit.py), PostToolUse) in `.agent-audit/tool_calls.jsonl`. Each entry has the time, session, tool, decision and a SHA-256 of the input, never the input itself, so a secret the agent tried to send can't end up in the log.
 
 [`scripts/start_ticket.sh`](scripts/start_ticket.sh) is the developer's entry point. It screens the ticket first and stops if it's quarantined:
@@ -124,7 +124,15 @@ approved_packages: [fastapi, pydantic, ...]
 high_risk_paths: [app/payments/**, .github/**, gates.yaml, .claude/**]
 ```
 
-To use the gates in another Python repo today, copy `gates/`, `gates.yaml`, `.gitleaks.toml`, `.github/workflows/factory-gates.yml` and, for the agent controls, `.claude/`; then make **Gates verdict** a required check. A reusable workflow (`uses: minw0607/agentic_sdlc_gates/...@v1`) is planned but not built yet.
+To use the gates in another Python repo, call the reusable workflow with one line:
+
+```yaml
+jobs:
+  gates:
+    uses: minw0607/agentic_sdlc_gates/.github/workflows/gates.yml@<commit-sha>  # v1.0.0
+```
+
+The gate code then comes from this repo, and policy (`gates.yaml`, `.gitleaks.toml`, tickets) from the other repo's `main` branch, never from the pull request being judged. Make **`gates / Gates verdict`** a required check. [`docs/reusable-workflow.md`](docs/reusable-workflow.md) covers setup, releases and what isn't covered yet. For the agent controls, copy `.claude/`.
 
 ## OWASP mapping
 
@@ -154,8 +162,10 @@ As of 22 November 2026. A 2-day build, done with Claude Code; the plan is in [`d
 - **A live check of the guard hook** inside an interactive Claude Code session. The hook's output format is unit-tested; seeing Claude Code honour it end to end, and the terminal part of S4, is still to be run and recorded.
 - **The demo recording** (4–5 minutes) and a GIF for this page.
 
+**Built, not yet run on a client repo**
+- A reusable workflow ([`gates.yml`](.github/workflows/gates.yml)), so another repo can adopt the gates with one `uses:` line. Unit-tested and simulated locally job by job; the first `v1.0.0` tag and a trial on a separate repo are still to do. This repo's own PRs still run `factory-gates.yml`.
+
 **Not built yet**
-- A reusable workflow, so another repo can adopt the gates with one `uses:` line.
 - An AI code review step. Every gate here is a fixed rule that gives the same answer each time. A model-based reviewer would be added in report-only mode, and would treat the diff as untrusted input, like tickets.
 
 ## What this is and isn't
@@ -164,6 +174,7 @@ As of 22 November 2026. A 2-day build, done with Claude Code; the plan is in [`d
 - **Tickets are files shaped like Jira issues**, not a live Jira integration.
 - **The agent controls are for Claude Code.** The CI gates work the same whichever agent, or person, wrote the code; Cursor-side controls aren't covered.
 - **The ticket screen is a pattern screen**: cheap and explainable, and evadable by rewording. That's why the guard hook sits behind it.
+- **The guard hook is a pattern check too.** It stops the obvious cases and says why, but an agent can still write a script and run it. Blocking the network around the agent (a sandbox or egress firewall) is what actually stops data leaving. The `.env` is also committed, so its dummy values can be read through git history.
 - **The scenario failures are seeded**, and recorded as such.
 
 ## More

@@ -179,13 +179,29 @@ def _api(method: str, url: str, token: str, body: dict[str, Any] | None = None) 
         return json.load(resp)
 
 
+BOT_LOGIN = "github-actions[bot]"  # the author of comments made with the workflow's token
+PAGE = 100
+
+
+def _is_ours(comment: dict[str, Any]) -> bool:
+    """Our summary: carries the marker and was posted by the workflow, not pasted by a person."""
+    user = comment.get("user") or {}
+    return MARKER in (comment.get("body") or "") and user.get("login") == BOT_LOGIN
+
+
 def upsert_comment(repo: str, pr: str, token: str, body: str, api: str) -> str:
     """Update the summary comment on the PR, or create it. Returns 'updated' or 'created'."""
-    comments = _api("GET", f"{api}/repos/{repo}/issues/{pr}/comments?per_page=100", token)
-    mine = next((c for c in comments if MARKER in (c.get("body") or "")), None)
-    if mine:
-        _api("PATCH", f"{api}/repos/{repo}/issues/comments/{mine['id']}", token, {"body": body})
-        return "updated"
+    page = 1
+    while True:
+        url = f"{api}/repos/{repo}/issues/{pr}/comments?per_page={PAGE}&page={page}"
+        comments = _api("GET", url, token)
+        mine = next((c for c in comments if _is_ours(c)), None)
+        if mine:
+            _api("PATCH", f"{api}/repos/{repo}/issues/comments/{mine['id']}", token, {"body": body})
+            return "updated"
+        if len(comments) < PAGE:
+            break
+        page += 1
     _api("POST", f"{api}/repos/{repo}/issues/{pr}/comments", token, {"body": body})
     return "created"
 

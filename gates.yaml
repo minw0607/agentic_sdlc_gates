@@ -41,6 +41,10 @@ high_risk_paths:
   - .github/**
   - gates.yaml
   - .claude/**
+  - gates/**          # the gate code itself
+  - defaults/**       # policy other repos get until they commit their own
+  - .gitleaks.toml
+  - tickets/**
 
 tickets:
   dir: tickets

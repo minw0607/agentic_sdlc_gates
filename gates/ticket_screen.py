@@ -24,9 +24,8 @@ import re
 import sys
 import unicodedata
 from dataclasses import dataclass
-from pathlib import Path
 
-from gates.config import GatesConfig, load_config
+from gates.config import GatesConfig, load_config, tickets_dir
 from gates.report import CannotEvaluate, Finding, Outcome, Result, env, run_gate
 from gates.tickets import Ticket, load_ticket
 from gates.traceability import ticket_key
@@ -150,11 +149,11 @@ def gate(cfg: GatesConfig) -> Outcome:
     if key is None:
         # Traceability (G6) decides whether a PR without a ticket is allowed.
         return Outcome(result=Result.PASS, reason="No ticket in the PR title, nothing to screen")
-    tickets_dir = Path(cfg.tickets.dir)
-    path = tickets_dir / f"{key}.json"
+    folder = tickets_dir(cfg)
+    path = folder / f"{key}.json"
     if not path.exists():
-        raise CannotEvaluate(f"ticket {key} not found in {tickets_dir}/")
-    return judge(load_ticket(key, tickets_dir), str(path))
+        raise CannotEvaluate(f"ticket {key} not found in {folder}/")
+    return judge(load_ticket(key, folder), f"{cfg.tickets.dir}/{key}.json")
 
 
 # --- local use -------------------------------------------------------------------------------
@@ -165,7 +164,7 @@ CLEAN, QUARANTINED, UNREADABLE = 0, 3, 2
 def local(key: str) -> int:
     try:
         cfg = load_config()
-        ticket = load_ticket(key, Path(cfg.tickets.dir))
+        ticket = load_ticket(key, tickets_dir(cfg))
     except Exception as e:
         print(f"Could not read ticket {key}: {e}", file=sys.stderr)
         return UNREADABLE

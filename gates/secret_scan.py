@@ -5,7 +5,8 @@ organization-owned repos. Secrets are redacted in the report; only the rule, fil
 and commit are kept.
 
 Environment: GATES_BASE_REF (base commit), GATES_HEAD_REF (default HEAD),
-GATES_GITLEAKS_BIN (default ``gitleaks``).
+GATES_GITLEAKS_BIN (default ``gitleaks``), GATES_GITLEAKS_CONFIG (default ``.gitleaks.toml``;
+the reusable workflow points it at the base commit's copy).
 """
 
 from __future__ import annotations
@@ -22,6 +23,10 @@ from gates.config import GatesConfig
 from gates.report import CannotEvaluate, Finding, Outcome, Result, env, run_gate
 
 CONFIG = ".gitleaks.toml"
+
+
+def gitleaks_config() -> str:
+    return os.environ.get("GATES_GITLEAKS_CONFIG") or CONFIG
 
 
 def judge(leaks: list[dict[str, Any]]) -> Outcome:
@@ -49,14 +54,15 @@ def judge(leaks: list[dict[str, Any]]) -> Outcome:
 
 
 def run_gitleaks(base_ref: str, head_ref: str, gitleaks_bin: str) -> list[dict[str, Any]]:
-    if not Path(CONFIG).exists():
-        raise CannotEvaluate(f"{CONFIG} not found")
+    config = gitleaks_config()
+    if not Path(config).exists():
+        raise CannotEvaluate(f"{config} not found")
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "leaks.json"
         cmd = [
             gitleaks_bin, "git", ".",
             "--log-opts", f"{base_ref}..{head_ref}",
-            "--config", CONFIG,
+            "--config", config,
             "--redact",
             "--no-banner",
             "--report-format", "json",
