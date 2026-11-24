@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
-from app.rides import service
+from app.rides import service, weather
 from app.rides.models import Ride, RideWait
 
 router = APIRouter(prefix="/rides", tags=["rides"])
@@ -18,4 +18,9 @@ def ride_wait(ride_id: str) -> RideWait:
     ride = service.get_ride(ride_id)
     if ride is None:
         raise HTTPException(status_code=404, detail=f"Ride {ride_id} not found")
-    return RideWait(ride_id=ride.id, status=ride.status, wait_minutes=ride.wait_minutes)
+    return RideWait(
+        ride_id=ride.id,
+        status=ride.status,
+        wait_minutes=ride.wait_minutes,
+        weather_delay_minutes=weather.delay_for(ride.area),
+    )

@@ -14,7 +14,12 @@ def test_list_rides_returns_every_ride(client: TestClient) -> None:
 def test_ride_wait_for_open_ride(client: TestClient) -> None:
     resp = client.get("/rides/r-01/wait")
     assert resp.status_code == 200
-    assert resp.json() == {"ride_id": "r-01", "status": "open", "wait_minutes": 45}
+    assert resp.json() == {
+        "ride_id": "r-01",
+        "status": "open",
+        "wait_minutes": 45,
+        "weather_delay_minutes": None,
+    }
 
 
 def test_ride_wait_for_closed_ride_has_no_wait(client: TestClient) -> None:
